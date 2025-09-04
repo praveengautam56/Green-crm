@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { MessageTemplate, Trigger, FlowStep, GreenApiConfig, TriggerType, Lead } from '../types';
 import { crmService } from '../services/crmService';
@@ -6,6 +7,28 @@ import { EditIcon, DeleteIcon } from '../constants';
 
 
 type GreenApiTab = 'templates' | 'triggers' | 'flow';
+
+const CopyButton: React.FC<{ text: string }> = ({ text }) => {
+    const [copied, setCopied] = useState(false);
+    const handleCopy = () => {
+        navigator.clipboard.writeText(text.trim());
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+    return (
+        <button onClick={handleCopy} className="absolute top-2 right-2 bg-slate-600 hover:bg-slate-500 text-white text-xs font-semibold py-1 px-2 rounded z-10">
+            {copied ? 'Copied!' : 'Copy'}
+        </button>
+    );
+};
+
+const CodeBlock: React.FC<{ code: string }> = ({ code }) => (
+    <div className="relative bg-slate-800 text-white p-4 rounded-md my-2 overflow-x-auto text-sm">
+        <CopyButton text={code} />
+        <pre><code className="language-javascript">{code.trim()}</code></pre>
+    </div>
+);
+
 
 const TabButton: React.FC<{ label: string; isActive: boolean; onClick: () => void }> = ({ label, isActive, onClick }) => (
     <button
@@ -522,7 +545,7 @@ const TestConnectionModal: React.FC<{
                             value={testNumber}
                             onChange={(e) => setTestNumber(e.target.value)}
                             placeholder="9876543210"
-                            pattern="\d{10}"
+                            pattern="\\d{10}"
                             title="Please enter a 10-digit mobile number"
                             className="w-full pl-10 pr-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-sky-500"
                         />
@@ -548,63 +571,248 @@ const TestConnectionModal: React.FC<{
     );
 };
 
-const WebhookGuideModal: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen, onClose }) => {
+const WebhookGuideModal: React.FC<{ isOpen: boolean; onClose: () => void; userId: string | undefined }> = ({ isOpen, onClose, userId }) => {
     if (!isOpen) return null;
+    
+    const webhookUrl = `https://<YOUR_VERCEL_APP_URL>/api/webhook?userId=${userId || 'YOUR_USER_ID'}`;
 
-    const payloadExample = `{
-  "typeWebhook": "incomingMessageReceived",
-  "instanceData": { ... },
-  "timestamp": 1678886400,
-  "idMessage": "...",
-  "senderData": {
-    "chatId": "919876543210@c.us",
-    "sender": "919876543210@c.us",
-    "senderName": "John Doe"
-  },
-  "messageData": {
-    "typeMessage": "textMessage",
-    "textMessageData": {
-      "textMessage": "price"
-    }
+    const webhookCode = `
+// File: /api/webhook.js
+// You will need to install firebase-admin: npm install firebase-admin
+import admin from 'firebase-admin';
+
+// --- Configuration ---
+// In Vercel, set Environment Variables for these:
+// GOOGLE_APPLICATION_CREDENTIALS: The JSON content of your Firebase service account key.
+// DATABASE_URL: Your Firebase Realtime Database URL.
+// ---
+
+if (!admin.apps.length) {
+  // Vercel may try to re-initialize the app, so we check first.
+  admin.initializeApp({
+    credential: admin.credential.applicationDefault(),
+    databaseURL: process.env.DATABASE_URL,
+  });
+}
+const db = admin.database();
+
+// Helper to send a WhatsApp message via Green API
+const sendWhatsAppMessage = async (config, mobile, message) => {
+    if (!config || !config.instanceId || !config.apiKey) return;
+    const [instanceId, customHost] = (config.instanceId || '').split(':');
+    const apiHost = customHost || 'api.green-api.com';
+    const chatId = \`91\${mobile}@c.us\`;
+    const url = \`https://\${apiHost}/waInstance\${instanceId}/sendMessage/\${config.apiKey}\`;
+    
+    await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chatId, message }),
+    });
+};
+
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ message: 'Method Not Allowed' });
   }
-}`;
+
+  const { userId } = req.query;
+  if (!userId) return res.status(400).json({ message: 'User ID is required.' });
+
+  const body = req.body;
+  const incomingMsg = body?.messageData?.textMessageData?.textMessage?.toLowerCase();
+  const senderChatId = body?.senderData?.chatId;
+
+  if (!incomingMsg || !senderChatId) {
+    return res.status(200).json({ message: 'Not a relevant message type.' });
+  }
+
+  try {
+    const userSnapshot = await db.ref(\`users/\${userId}\`).once('value');
+    const userData = userSnapshot.val();
+
+    if (!userData?.flow || !userData.greenApiConfig) {
+      return res.status(404).json({ message: 'User configuration not found.' });
+    }
+
+    const flowSteps = Object.values(userData.flow);
+    const matchingStep = flowSteps.find(step => incomingMsg.includes((step.incomingMsg || '').toLowerCase()));
+
+    if (matchingStep) {
+      setTimeout(async () => {
+        const mobile = senderChatId.split('@')[0].substring(2);
+        await sendWhatsAppMessage(userData.greenApiConfig, mobile, matchingStep.responseMsg);
+      }, matchingStep.delayMinutes * 60 * 1000);
+    }
+    
+    res.status(200).json({ message: 'Webhook processed.' });
+  } catch (error) {
+    console.error(\`Webhook error for user \${userId}:\`, error);
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
+}
+`;
+    const cronCode = `
+// File: /api/cron.js
+import admin from 'firebase-admin';
+
+// --- Configuration (Same as webhook) ---
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.applicationDefault(),
+    databaseURL: process.env.DATABASE_URL,
+  });
+}
+const db = admin.database();
+// You will also need a CRON_SECRET environment variable. Create a long, random string for it.
+
+// Helper to send a WhatsApp message via Green API (can be shared)
+const sendWhatsAppMessage = async (config, mobile, message) => {
+    if (!config || !config.instanceId || !config.apiKey) return;
+    const [instanceId, customHost] = (config.instanceId || '').split(':');
+    const apiHost = customHost || 'api.green-api.com';
+    const chatId = \`91\${mobile}@c.us\`;
+    const url = \`https://\${apiHost}/waInstance\${instanceId}/sendMessage/\${config.apiKey}\`;
+    
+    await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chatId, message }),
+    });
+};
+
+export default async function handler(req, res) {
+  // Secure your cron job endpoint
+  if (req.headers['authorization'] !== \`Bearer \${process.env.CRON_SECRET}\`) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+
+  try {
+    const usersSnapshot = await db.ref('users').once('value');
+    const users = usersSnapshot.val();
+    if (!users) {
+        return res.status(200).json({ message: 'No users to process.' });
+    }
+
+    const now = new Date();
+
+    for (const userId in users) {
+      const user = users[userId];
+      if (!user.greenApiConfig || !user.triggers) continue;
+      
+      const leads = Object.values(user.leads || {});
+      const templates = Object.values(user.templates || {});
+      const triggers = Object.entries(user.triggers || {}).map(([id, val]) => ({ id, ...val }));
+      const meetings = Object.entries(user.meetings || {}).map(([id, val]) => ({ id, ...val }));
+      
+      // Process scheduled triggers
+      for (const trigger of triggers.filter(t => t.type === 'scheduled' && t.enabled && !t.config?.sent)) {
+          const scheduledTime = new Date(trigger.config.dateTime);
+          if (scheduledTime <= now) {
+            const lead = leads.find(l => l.id === trigger.config.leadId);
+            const template = templates.find(t => t.id === trigger.templateId);
+            if (lead && template) {
+              const message = template.content.replace('{{name}}', lead.name);
+              await sendWhatsAppMessage(user.greenApiConfig, lead.mobile, message);
+              await db.ref(\`users/\${userId}/triggers/\${trigger.id}/config/sent\`).set(true);
+            }
+          }
+      }
+
+      // Process meeting reminders
+      for (const trigger of triggers.filter(t => t.type === 'meeting-reminder' && t.enabled)) {
+          for (const meeting of meetings) {
+            const meetingStartTime = new Date(meeting.startTime);
+            if (meetingStartTime < now || meeting.remindersSent?.[trigger.id]) continue;
+
+            const reminderTime = new Date(meetingStartTime.getTime() - (trigger.config.minutesBefore * 60 * 1000));
+            if (reminderTime <= now) {
+              const lead = leads.find(l => l.name === meeting.attendee);
+              const template = templates.find(t => t.id === trigger.templateId);
+              if (lead && template) {
+                  const message = template.content.replace('{{name}}', lead.name);
+                  await sendWhatsAppMessage(user.greenApiConfig, lead.mobile, message);
+                  await db.ref(\`users/\${userId}/meetings/\${meeting.id}/remindersSent/\${trigger.id}\`).set(true);
+              }
+            }
+          }
+      }
+    }
+
+    res.status(200).json({ message: 'Cron job executed successfully.' });
+  } catch (error) {
+    console.error('Cron job error:', error);
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
+}
+`;
+    const vercelJsonConfig = `
+// File: vercel.json (in your project's root directory)
+{
+  "crons": [
+    {
+      "path": "/api/cron",
+      "schedule": "* * * * *"
+    }
+  ]
+}
+`;
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-start p-4 overflow-y-auto" onClick={onClose}>
-            <div className="bg-white mt-8 mb-8 p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-3xl" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-white mt-8 mb-8 p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-4xl" onClick={(e) => e.stopPropagation()}>
                 <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-xl font-semibold text-slate-800">Webhook & Backend Guide</h3>
+                    <h3 className="text-xl font-semibold text-slate-800">Backend Automation Setup Guide (Vercel)</h3>
                     <button onClick={onClose} className="text-slate-500 hover:text-slate-800 text-3xl leading-none">&times;</button>
                 </div>
-                <div className="space-y-6 text-slate-700">
-                    <div>
-                        <h4 className="font-semibold text-lg text-slate-800 mb-2">1. What is a Webhook?</h4>
-                        <p>A webhook is a URL on your own server that Green API sends a POST request to whenever a new message arrives in your WhatsApp account. Your server must be running 24/7 to receive these messages and trigger your automated flows.</p>
-                    </div>
-                    <div>
-                        <h4 className="font-semibold text-lg text-slate-800 mb-2">2. What Your Backend Needs to Do</h4>
-                        <p className="mb-4">Here is the logic your server-side code must implement:</p>
-                        <ol className="list-decimal list-inside space-y-2 bg-slate-50 p-4 rounded-md border">
-                            <li>Create a public API endpoint (e.g., `POST /api/green-webhook`) and enter its URL in the connection settings.</li>
-                            <li>When a request comes from Green API, parse the JSON body. See the example payload below.</li>
-                            <li>Extract the sender's number from <code className="bg-slate-200 px-1 rounded text-sm">senderData.chatId</code> and the message from <code className="bg-slate-200 px-1 rounded text-sm">messageData.textMessageData.textMessage</code>.</li>
-                            <li>Using the User ID (which you'll need to associate with the webhook), load your "Flow" rules from your Firebase Realtime Database at the path <code className="bg-slate-200 px-1 rounded text-sm">/users/&#123;userId&#125;/flow</code>.</li>
-                            <li>Check if the incoming message text contains any of your configured keywords (<code className="bg-slate-200 px-1 rounded text-sm">incomingMsg</code>).</li>
-                            <li>If a match is found, retrieve the corresponding <code className="bg-slate-200 px-1 rounded text-sm">responseMsg</code> and <code className="bg-slate-200 px-1 rounded text-sm">delayMinutes</code>.</li>
-                            <li>After the delay, use the <code className="bg-slate-200 px-1 rounded text-sm">crmService.sendConfiguredWhatsAppMessage</code> logic to send the reply. You'll need to load the user's Green API credentials from Firebase to do this.</li>
-                        </ol>
+                <div className="prose prose-slate max-w-none">
+                    <p>For automated messaging (Triggers & Flows) to work, you must deploy a backend service. This guide provides all the necessary code and steps to deploy on Vercel.</p>
+                    
+                    <h4>Step 1: Firebase Admin SDK Setup</h4>
+                    <p>Your backend needs admin access to your Firebase project.</p>
+                    <ol>
+                        <li>In your project terminal, install the Firebase Admin SDK: <code>npm install firebase-admin</code></li>
+                        <li>Go to your <a href="https://console.firebase.google.com/" target="_blank" rel="noopener noreferrer">Firebase project settings</a>, click on "Service Accounts", and "Generate new private key". A JSON file will be downloaded.</li>
+                        <li>In your Vercel project's settings, go to "Environment Variables" and create the following:
+                            <ul>
+                                <li><code>GOOGLE_APPLICATION_CREDENTIALS</code>: Paste the <strong>entire content</strong> of the JSON file you just downloaded.</li>
+                                <li><code>DATABASE_URL</code>: Your Firebase Realtime Database URL (e.g., <code>https://your-project-id.firebaseio.com</code>).</li>
+                                <li><code>CRON_SECRET</code>: Create a long, random, and secure string (e.g., from a password generator). This will protect your cron job endpoint.</li>
+                            </ul>
+                        </li>
+                    </ol>
+
+                    <h4>Step 2: Create the Webhook for "Flows"</h4>
+                    <p>This serverless function receives incoming message data from Green API to trigger your automated flows.</p>
+                     <ol>
+                        <li>Create a new file in your project: <code>/api/webhook.js</code>.</li>
+                        <li>Copy and paste the code below into the file.</li>
+                    </ol>
+                    <CodeBlock code={webhookCode} />
+                    <p>After deploying, you must update the "Webhook URL" in this CRM to: <code className="text-sm bg-slate-200 p-1 rounded">{webhookUrl}</code>. Green API will then send incoming messages to this endpoint.</p>
+
+                    <h4>Step 3: Create the Cron Job for "Triggers"</h4>
+                    <p>This function runs on a schedule to handle time-based triggers like scheduled messages and meeting reminders.</p>
+                    <ol>
+                        <li>Create a new file in your project: <code>/api/cron.js</code>.</li>
+                        <li>Copy and paste the code below into the file.</li>
+                    </ol>
+                    <CodeBlock code={cronCode} />
+
+                    <h4>Step 4: Configure the Cron Schedule</h4>
+                    <p>Tell Vercel how often to run your cron job function.</p>
+                    <ol>
+                        <li>Create a new file in your project's root directory named <code>vercel.json</code>.</li>
+                        <li>Copy and paste the configuration below. The schedule <code>"* * * * *"</code> means it will run every minute.</li>
+                    </ol>
+                    <CodeBlock code={vercelJsonConfig} />
+
+                    <div className="p-4 bg-sky-50 border-l-4 border-sky-500 mt-6">
+                        <p><strong>Deployment:</strong> Once these files are in place and your environment variables are set, deploy your project to Vercel. Your automation backend will be live.</p>
                     </div>
 
-                     <div>
-                        <h4 className="font-semibold text-lg text-slate-800 mb-2">3. Example Incoming Message Payload</h4>
-                        <p className="mb-2">Your server will receive a JSON object that looks like this. Your code needs to parse this to get the sender's number and message.</p>
-                        <pre className="bg-slate-800 text-white p-4 rounded-lg text-sm overflow-x-auto">
-                            <code>{payloadExample}</code>
-                        </pre>
-                    </div>
-                    
                     <div className="mt-8 flex justify-end">
-                         <button type="button" onClick={onClose} className="bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-4 rounded-lg">Got it!</button>
+                         <button type="button" onClick={onClose} className="bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-4 rounded-lg">Understood</button>
                     </div>
                 </div>
             </div>
@@ -655,24 +863,23 @@ const GreenApi: React.FC<GreenApiProps> = ({ templates, onSaveTemplate, onDelete
                 config={greenApiConfig}
             />
             <TestConnectionModal isOpen={isTestModalOpen} onClose={() => setIsTestModalOpen(false)} onSendTest={handleSendTestMessage} />
-            <WebhookGuideModal isOpen={isGuideModalOpen} onClose={() => setIsGuideModalOpen(false)} />
+            <WebhookGuideModal isOpen={isGuideModalOpen} onClose={() => setIsGuideModalOpen(false)} userId={user?.uid} />
 
             <div className="bg-white p-6 rounded-xl shadow-md space-y-8">
                 <div>
                     <h3 className="text-xl font-semibold text-slate-800 mb-6">Green API Integration</h3>
 
                      <div className="bg-amber-50 border-l-4 border-amber-500 text-amber-900 p-4 mb-6 rounded-r-lg" role="alert">
-                        <p className="font-bold">Action Required: Backend Server Needed for Flows</p>
-                        <div className="flex justify-between items-center">
-                            <p className="text-sm">
-                                The "Flow Setup" feature is **not functional** without a backend server. Your server must receive data from Green API via your webhook URL and then use your credentials to send replies. This CRM only helps you *configure* the automation rules.
+                        <p className="font-bold">Important: Automation Requires a Backend Server</p>
+                        <div className="flex justify-between items-center flex-wrap gap-2">
+                             <p className="text-sm">
+                                All automated messaging features (Triggers & Flows) must run on a backend server to work reliably. You need to deploy server-side code to handle webhooks and scheduled tasks.
                             </p>
-                            <button onClick={() => setIsGuideModalOpen(true)} className="ml-4 flex-shrink-0 bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-3 rounded-lg text-xs transition-colors">
-                                View Backend Guide
+                            <button onClick={() => setIsGuideModalOpen(true)} className="ml-auto flex-shrink-0 bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-3 rounded-lg text-sm transition-colors">
+                                View Setup Guide
                             </button>
                         </div>
                     </div>
-
 
                     <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                          <h4 className="font-semibold text-slate-800 mb-2">Connection Status</h4>

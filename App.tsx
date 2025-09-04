@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Page, Lead, MessageTemplate, Trigger, LandingPage, Meeting, FlowStep, LeadStatus, Admin, GreenApiConfig } from './types';
 import Sidebar from './components/Sidebar';
@@ -27,7 +28,6 @@ const App: React.FC = () => {
     const [adminUser, setAdminUser] = useState<Admin | null>(null);
     const [greenApiConfig, setGreenApiConfig] = useState<GreenApiConfig | null>(null);
     const [loadingData, setLoadingData] = useState(true);
-    const timeoutIdsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
     useEffect(() => {
         if (!user) {
@@ -63,72 +63,6 @@ const App: React.FC = () => {
 
         return () => unsubscribe();
     }, [user]);
-
-    // Effect to handle time-based triggers.
-    // NOTE: This is a browser-based simulation. For a production environment,
-    // this logic should be moved to a backend server/service for reliability.
-    useEffect(() => {
-        // Clear all previous timeouts to avoid duplicates when dependencies change
-        timeoutIdsRef.current.forEach(clearTimeout);
-        timeoutIdsRef.current = [];
-    
-        if (!user || !triggers.length || !greenApiConfig || !leads.length || !templates.length) {
-            return;
-        }
-    
-        const newTimeoutIds: ReturnType<typeof setTimeout>[] = [];
-    
-        triggers.forEach(trigger => {
-            if (!trigger.enabled) return;
-    
-            // Handle 'scheduled' triggers
-            if (trigger.type === 'scheduled' && trigger.config?.dateTime && trigger.config?.leadId) {
-                const scheduledTime = new Date(trigger.config.dateTime).getTime();
-                const now = new Date().getTime();
-                const delay = scheduledTime - now;
-                const targetLead = leads.find(l => l.id === trigger.config.leadId);
-                const template = templates.find(t => t.id === trigger.templateId);
-    
-                if (delay > 0 && targetLead && template) {
-                    const timeoutId = setTimeout(() => {
-                        console.log(`Triggering scheduled event: ${trigger.name} for ${targetLead.name}`);
-                        const message = template.content.replace('{{name}}', targetLead.name);
-                        crmService.sendConfiguredWhatsAppMessage(user.uid, targetLead.mobile, message);
-                    }, delay);
-                    newTimeoutIds.push(timeoutId);
-                }
-            }
-    
-            // Handle 'meeting-reminder' triggers
-            if (trigger.type === 'meeting-reminder' && trigger.config?.minutesBefore) {
-                meetings.forEach(meeting => {
-                    const reminderTime = new Date(meeting.startTime).getTime() - (trigger.config.minutesBefore! * 60 * 1000);
-                    const now = new Date().getTime();
-                    const delay = reminderTime - now;
-                     // Matching by name is brittle, but it's what we have in the meeting data
-                    const targetLead = leads.find(l => l.name === meeting.attendee);
-                    const template = templates.find(t => t.id === trigger.templateId);
-    
-                    if (delay > 0 && targetLead && template) {
-                         const timeoutId = setTimeout(() => {
-                            console.log(`Triggering meeting reminder: ${trigger.name} for ${targetLead.name}`);
-                            const message = template.content.replace('{{name}}', targetLead.name);
-                            crmService.sendConfiguredWhatsAppMessage(user.uid, targetLead.mobile, message);
-                        }, delay);
-                        newTimeoutIds.push(timeoutId);
-                    }
-                });
-            }
-        });
-    
-        timeoutIdsRef.current = newTimeoutIds;
-    
-        // Cleanup function to clear timeouts on component unmount or re-render
-        return () => {
-            timeoutIdsRef.current.forEach(clearTimeout);
-        };
-    
-    }, [user, triggers, meetings, leads, templates, greenApiConfig]);
     
     const handleLogout = useCallback(async () => {
         await signOut();
