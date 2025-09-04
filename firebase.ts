@@ -4,32 +4,18 @@ import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import 'firebase/compat/database';
 
-// Fix: Add type definitions for Vite environment variables to resolve TypeScript errors.
-// This is necessary because TypeScript doesn't know about `import.meta.env` by default.
-interface ImportMetaEnv {
-  readonly VITE_API_KEY: string;
-  readonly VITE_AUTH_DOMAIN: string;
-  readonly VITE_DATABASE_URL: string;
-  readonly VITE_PROJECT_ID: string;
-  readonly VITE_STORAGE_BUCKET: string;
-  readonly VITE_MESSAGING_SENDER_ID: string;
-  readonly VITE_APP_ID: string;
-}
-
-interface ImportMeta {
-  readonly env: ImportMetaEnv;
-}
-
-// Your web app's Firebase configuration is now loaded from environment variables
-// This makes your application more secure, especially for deployment.
+// Your web app's Firebase configuration
+// NOTE: For a real-world deployment, these keys should be stored securely in environment variables,
+// not hardcoded in the source code. This has been reverted to a hardcoded config to fix a runtime
+// error in the current development environment which does not support import.meta.env.
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_API_KEY,
-  authDomain: import.meta.env.VITE_AUTH_DOMAIN,
-  databaseURL: import.meta.env.VITE_DATABASE_URL,
-  projectId: import.meta.env.VITE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_APP_ID
+  apiKey: "AIzaSyCAVj5eON7DAsYxYyMeVjd_S41-6YqGLW4",
+  authDomain: "green-crm-12bf0.firebaseapp.com",
+  databaseURL: "https://green-crm-12bf0-default-rtdb.firebaseio.com",
+  projectId: "green-crm-12bf0",
+  storageBucket: "green-crm-12bf0.appspot.com",
+  messagingSenderId: "1072210444292",
+  appId: "1:1072210444292:web:53b70ff83024eff018f551"
 };
 
 // Initialize Firebase
