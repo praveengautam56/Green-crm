@@ -1,0 +1,5 @@
+{
+  "name": "Green CRM",
+  "description": "A modern, AI-powered CRM dashboard for managing leads, marketing, and client meetings. Features include Green API integration for messaging, landing page management, lead tracking, and a Calendly-like meeting scheduler.",
+  "requestFramePermissions": []
+}
