@@ -1,7 +1,8 @@
 
+
 import React, { useState, useMemo } from 'react';
-import { Lead, LeadStatus } from '../types';
-import { CallIcon } from '../constants';
+import { Lead, LeadStatus, MessageTemplate } from '../types';
+import { CallIcon, WhatsAppIcon } from '../constants';
 
 interface LeadsProps {
     leads: Lead[];
@@ -10,6 +11,8 @@ interface LeadsProps {
     setLeadStatuses: (statuses: LeadStatus[]) => void;
     onDeleteLeads: (leadIds: string[]) => void;
     onUpdateLead: (leadId: string, updates: Partial<Lead>) => void;
+    templates: MessageTemplate[];
+    onSendMessage: (leadId: string, templateId: string) => Promise<{ success: boolean; message: string }>;
 }
 
 const STATUS_COLOR_MAP: { [key in LeadStatus['color']]: string } = {
@@ -153,20 +156,20 @@ const ManageStatusesModal: React.FC<{
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4" onClick={onClose}>
             <div className="bg-white p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
                  <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-xl font-semibold text-slate-800">Manage Lead Statuses</h3>
+                    <h3 className="text-xl font-semibold text-slate-800">Manage Stages</h3>
                     <button onClick={onClose} className="text-slate-500 hover:text-slate-800 text-3xl leading-none">&times;</button>
                 </div>
                 <div>
-                    <h4 className="text-md font-semibold text-slate-700 mb-2">Add New Status</h4>
+                    <h4 className="text-md font-semibold text-slate-700 mb-2">Add New Stage</h4>
                     <form onSubmit={handleAddStatus} className="flex items-center gap-2 mb-6">
-                        <input name="name" placeholder="Status Name" className="w-full px-3 py-2 border rounded-md" required />
+                        <input name="name" placeholder="Stage Name" className="w-full px-3 py-2 border rounded-md" required />
                         <select name="color" className="px-3 py-2 border rounded-md" defaultValue="slate">
                             {Object.keys(STATUS_COLOR_MAP).map(color => <option key={color} value={color}>{color.charAt(0).toUpperCase() + color.slice(1)}</option>)}
                         </select>
                         <button type="submit" className="bg-sky-500 text-white font-bold p-2 rounded-md">+</button>
                     </form>
 
-                    <h4 className="text-md font-semibold text-slate-700 mb-2">Existing Statuses</h4>
+                    <h4 className="text-md font-semibold text-slate-700 mb-2">Existing Stages</h4>
                     <ul className="space-y-2">
                         {statuses.map(status => (
                             <li key={status.name} className="flex justify-between items-center p-2 rounded-md bg-slate-50">
@@ -326,8 +329,77 @@ const ChangeStatusModal: React.FC<{
     );
 };
 
+const SendMessageModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    onSend: (templateId: string) => void;
+    lead: Lead | null;
+    templates: MessageTemplate[];
+    isSending: boolean;
+    sendResult: { success: boolean; message: string } | null;
+}> = ({ isOpen, onClose, onSend, lead, templates, isSending, sendResult }) => {
+    if (!isOpen || !lead) return null;
 
-const Leads: React.FC<LeadsProps> = ({ leads, onAddNewLead, leadStatuses, setLeadStatuses, onDeleteLeads, onUpdateLead }) => {
+    const [selectedTemplateId, setSelectedTemplateId] = useState<string>(templates[0]?.id || '');
+
+    const handleSend = () => {
+        if (!selectedTemplateId) return;
+        onSend(selectedTemplateId);
+    };
+    
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4" onClick={onClose}>
+            <div className="bg-white p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-xl font-semibold text-slate-800">Send Message</h3>
+                <p className="text-slate-600 mt-4">
+                    Do you want to send a message to <span className="font-semibold">{lead.name}</span>?
+                </p>
+
+                <div className="mt-6">
+                    <label htmlFor="template-select" className="block text-slate-700 text-sm font-bold mb-2">Select Template</label>
+                    <select
+                        id="template-select"
+                        value={selectedTemplateId}
+                        onChange={(e) => setSelectedTemplateId(e.target.value)}
+                        className="w-full px-3 py-2 border rounded-md bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                        disabled={templates.length === 0}
+                    >
+                        {templates.length > 0 ? (
+                            templates.map(template => (
+                                <option key={template.id} value={template.id}>{template.name}</option>
+                            ))
+                        ) : (
+                            <option value="" disabled>No templates available</option>
+                        )}
+                    </select>
+                </div>
+
+                {sendResult && (
+                    <p className={`mt-4 text-sm font-medium ${sendResult.success ? 'text-green-600' : 'text-red-600'}`}>
+                        {sendResult.message}
+                    </p>
+                )}
+
+                <div className="mt-6 flex justify-end gap-4">
+                    <button type="button" onClick={onClose} className="bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold py-2 px-4 rounded-lg">
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleSend}
+                        disabled={isSending || !selectedTemplateId}
+                        className="bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-4 rounded-lg disabled:bg-sky-300"
+                    >
+                        {isSending ? 'Sending...' : 'Send'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
+const Leads: React.FC<LeadsProps> = ({ leads, onAddNewLead, leadStatuses, setLeadStatuses, onDeleteLeads, onUpdateLead, templates, onSendMessage }) => {
     const [currentPage, setCurrentPage] = useState(1);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
@@ -338,6 +410,10 @@ const Leads: React.FC<LeadsProps> = ({ leads, onAddNewLead, leadStatuses, setLea
     const [filterStatus, setFilterStatus] = useState('all');
     const [filterCity, setFilterCity] = useState('all');
     const [filterDate, setFilterDate] = useState('all');
+
+    const [isSendModalOpen, setIsSendModalOpen] = useState(false);
+    const [isSendingMessage, setIsSendingMessage] = useState(false);
+    const [sendMessageResult, setSendMessageResult] = useState<{ success: boolean; message: string } | null>(null);
 
     const leadsPerPage = 10;
 
@@ -422,6 +498,37 @@ const Leads: React.FC<LeadsProps> = ({ leads, onAddNewLead, leadStatuses, setLea
         onUpdateLead(leadId, { status: newStatus });
     };
 
+    const handleSendMessage = async (templateId: string) => {
+        if (selectedLeads.length !== 1) return;
+        
+        setIsSendingMessage(true);
+        setSendMessageResult(null);
+        
+        const leadId = selectedLeads[0];
+        const result = await onSendMessage(leadId, templateId);
+        
+        setSendMessageResult(result);
+        setIsSendingMessage(false);
+
+        if (result.success) {
+            setTimeout(() => {
+                setIsSendModalOpen(false);
+                setSendMessageResult(null); 
+            }, 2000); 
+        }
+    };
+    
+    const openSendModal = () => {
+        setSendMessageResult(null); // Reset on open
+        setIsSendModalOpen(true);
+    }
+    
+    const getSelectedLead = () => {
+        if (selectedLeads.length !== 1) return null;
+        return leads.find(lead => lead.id === selectedLeads[0]) || null;
+    }
+
+
     return (
         <>
             <AddLeadModal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} onAddLead={onAddNewLead} />
@@ -432,6 +539,15 @@ const Leads: React.FC<LeadsProps> = ({ leads, onAddNewLead, leadStatuses, setLea
                 statuses={leadStatuses} 
                 onClose={() => setStatusChangeTarget(null)} 
                 onSave={handleStatusSave} 
+            />
+             <SendMessageModal
+                isOpen={isSendModalOpen}
+                onClose={() => setIsSendModalOpen(false)}
+                onSend={handleSendMessage}
+                lead={getSelectedLead()}
+                templates={templates}
+                isSending={isSendingMessage}
+                sendResult={sendMessageResult}
             />
             <FilterLeadsModal 
                 isOpen={isFilterModalOpen}
@@ -453,6 +569,14 @@ const Leads: React.FC<LeadsProps> = ({ leads, onAddNewLead, leadStatuses, setLea
                         </span>
                     </div>
                     <div className="flex gap-2 flex-wrap justify-end">
+                         {selectedLeads.length === 1 && (
+                            <button
+                                onClick={openSendModal}
+                                className="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg"
+                            >
+                                Send
+                            </button>
+                        )}
                          {selectedLeads.length > 0 && (
                             <button
                                 onClick={() => setIsDeleteModalOpen(true)}
@@ -465,7 +589,7 @@ const Leads: React.FC<LeadsProps> = ({ leads, onAddNewLead, leadStatuses, setLea
                             Filter Leads
                         </button>
                         <button onClick={() => setIsStatusModalOpen(true)} className="bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold py-2 px-4 rounded-lg">
-                            Manage Statuses
+                            Stage
                         </button>
                         <button onClick={() => setIsAddModalOpen(true)} className="bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-4 rounded-lg">
                             + Add New Lead
@@ -499,8 +623,18 @@ const Leads: React.FC<LeadsProps> = ({ leads, onAddNewLead, leadStatuses, setLea
                                 <p><strong>Location:</strong> {lead.city}, {lead.state}</p>
                                 <p><strong>Added:</strong> {formatDateAdded(lead.dateAdded)}</p>
                             </div>
-                             <div className="mt-3 flex items-center justify-end">
-                                <a href={`tel:+91${lead.mobile}`} className="flex items-center gap-2 bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-4 rounded-lg text-sm">
+                             <div className="mt-3 flex items-center justify-end gap-2">
+                                <a
+                                    href={`https://wa.me/91${lead.mobile}?text=${encodeURIComponent(`Hi ${lead.name}`)}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg text-sm"
+                                    aria-label={`Send WhatsApp to ${lead.name}`}
+                                >
+                                    <WhatsAppIcon />
+                                    <span>WhatsApp</span>
+                                </a>
+                                <a href={`tel:+91${lead.mobile}`} className="flex items-center gap-2 bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-4 rounded-lg text-sm" aria-label={`Call ${lead.name}`}>
                                     <CallIcon />
                                     <span>Call</span>
                                 </a>

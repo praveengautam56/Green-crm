@@ -1,34 +1,38 @@
-
-import React, { useState, useEffect } from 'react';
-import { MessageTemplate, Trigger, FlowStep, GreenApiConfig, TriggerType, Lead } from '../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { MessageTemplate, Trigger, GreenApiConfig, TriggerType, Lead } from '../types';
 import { crmService } from '../services/crmService';
 import { useAuth } from '../hooks/useAuth';
 import { EditIcon, DeleteIcon } from '../constants';
 
 
-type GreenApiTab = 'templates' | 'triggers' | 'flow';
+const ConfirmationModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    onConfirm: () => void;
+    title: string;
+    message: React.ReactNode;
+}> = ({ isOpen, onClose, onConfirm, title, message }) => {
+    if (!isOpen) return null;
 
-const CopyButton: React.FC<{ text: string }> = ({ text }) => {
-    const [copied, setCopied] = useState(false);
-    const handleCopy = () => {
-        navigator.clipboard.writeText(text.trim());
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-    };
     return (
-        <button onClick={handleCopy} className="absolute top-2 right-2 bg-slate-600 hover:bg-slate-500 text-white text-xs font-semibold py-1 px-2 rounded z-10">
-            {copied ? 'Copied!' : 'Copy'}
-        </button>
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4" onClick={onClose}>
+            <div className="bg-white p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-xl font-semibold text-slate-800">{title}</h3>
+                <div className="text-slate-600 mt-4">{message}</div>
+                <div className="mt-6 flex justify-end gap-4">
+                    <button type="button" onClick={onClose} className="bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold py-2 px-4 rounded-lg">
+                        No, Cancel
+                    </button>
+                    <button type="button" onClick={onConfirm} className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg">
+                        Yes, Delete
+                    </button>
+                </div>
+            </div>
+        </div>
     );
 };
 
-const CodeBlock: React.FC<{ code: string }> = ({ code }) => (
-    <div className="relative bg-slate-800 text-white p-4 rounded-md my-2 overflow-x-auto text-sm">
-        <CopyButton text={code} />
-        <pre><code className="language-javascript">{code.trim()}</code></pre>
-    </div>
-);
-
+type GreenApiTab = 'templates' | 'triggers';
 
 const TabButton: React.FC<{ label: string; isActive: boolean; onClick: () => void }> = ({ label, isActive, onClick }) => (
     <button
@@ -48,34 +52,85 @@ const TemplatesView: React.FC<{
 }> = ({ templates, onSave, onDelete }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingTemplate, setEditingTemplate] = useState<MessageTemplate | null>(null);
+    const [templateToDelete, setTemplateToDelete] = useState<MessageTemplate | null>(null);
 
     const openModal = (template: MessageTemplate | null = null) => {
         setEditingTemplate(template);
         setIsModalOpen(true);
     };
+    
+    const confirmDelete = () => {
+        if (templateToDelete) {
+            onDelete(templateToDelete.id);
+            setTemplateToDelete(null);
+        }
+    };
+
+    const renderPreviewContent = (text: string) => {
+        const sampleData: { [key: string]: string } = {
+            name: 'Praveen',
+            mobile: '9876543210',
+            profession: 'Software Engineer',
+            city: 'Bangalore',
+        };
+        const parts = text.split(/(\{\{\w+\}\})/g);
+
+        return parts.map((part, index) => {
+            if (part.match(/\{\{(\w+)\}\}/)) {
+                const varName = part.replace(/[{}]/g, '');
+                return (
+                    <span key={index} className="font-bold text-sky-700 bg-sky-200/50 rounded-sm px-1 py-0.5">
+                        {sampleData[varName] || 'Sample Data'}
+                    </span>
+                );
+            }
+            return part;
+        });
+    };
 
     return (
         <div>
             <TemplateModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={onSave} template={editingTemplate} />
+            <ConfirmationModal
+                isOpen={!!templateToDelete}
+                onClose={() => setTemplateToDelete(null)}
+                onConfirm={confirmDelete}
+                title="Confirm Template Deletion"
+                message={<p>Are you sure you want to delete the template "<strong>{templateToDelete?.name}</strong>"? This action cannot be undone.</p>}
+            />
             <div className="flex justify-between items-center mb-4">
                 <h4 className="text-lg font-semibold text-slate-700">Message Templates</h4>
                 <button onClick={() => openModal()} className="bg-sky-500 text-white font-bold py-2 px-4 rounded-lg text-sm">+ Add Template</button>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {templates.map(template => (
-                    <div key={template.id} className="bg-white p-4 border border-slate-200 rounded-lg shadow-sm transition-shadow hover:shadow-lg flex flex-col aspect-square">
-                        <div className="flex justify-between items-start mb-2">
-                            <p className="font-semibold text-slate-800 break-words">{template.name}</p>
-                             <div className="flex gap-2 flex-shrink-0 ml-2">
-                               <button onClick={() => openModal(template)} className="text-xs font-medium text-sky-600 hover:text-sky-800">Edit</button>
-                               <button onClick={() => onDelete(template.id)} className="text-xs font-medium text-red-600 hover:text-red-800">Del</button>
+                    <div key={template.id} className="bg-white p-4 border border-slate-200 rounded-lg shadow-sm transition-shadow hover:shadow-lg flex flex-col justify-between">
+                        <div>
+                            <div className="flex justify-between items-start">
+                                <p className="font-semibold text-slate-800 break-words flex-1">{template.name}</p>
+                                 <div className="flex gap-2 flex-shrink-0 ml-2">
+                                   <button onClick={() => openModal(template)} className="text-xs font-medium text-sky-600 hover:text-sky-800">Edit</button>
+                                   <button onClick={() => setTemplateToDelete(template)} className="text-xs font-medium text-red-600 hover:text-red-800">Del</button>
+                                </div>
+                            </div>
+                             <p className="text-xs text-slate-400 mb-4">Updated: {template.lastUpdated}</p>
+                        </div>
+                        <div className="bg-[#DCF8C6] p-2 rounded-lg shadow-sm ml-auto w-full break-words">
+                            <p className="text-sm text-slate-800 whitespace-pre-wrap">
+                               {renderPreviewContent(template.content)}
+                            </p>
+                            <div className="text-right text-xs text-slate-400 mt-1">
+                                {new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                             </div>
                         </div>
-                        <p className="text-sm text-slate-600 bg-slate-50 p-2 rounded-md border border-slate-200 flex-1 overflow-auto">
-                           {template.content}
-                        </p>
                     </div>
                 ))}
+                 {templates.length === 0 && (
+                    <div className="sm:col-span-2 lg:col-span-3 text-center py-10 text-slate-500 border-2 border-dashed rounded-lg">
+                        <p>No templates yet.</p>
+                        <p className="text-sm">Click "+ Add Template" to create your first message.</p>
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -121,16 +176,18 @@ const TriggerModal: React.FC<{
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4" onClick={onClose}>
-            <div className="bg-white p-8 rounded-xl w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
-                <h3 className="text-xl font-semibold mb-6">{trigger ? 'Edit' : 'Create'} Trigger</h3>
-                <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="bg-white rounded-xl w-full max-w-lg shadow-xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                <div className="bg-slate-800 p-4">
+                    <h3 className="text-xl font-semibold text-white">{trigger ? name : 'Create Trigger'}</h3>
+                </div>
+                <form onSubmit={handleSubmit} className="space-y-4 p-6">
                     <div>
-                        <label className="block text-sm font-bold mb-2">Trigger Name</label>
-                        <input value={name} onChange={(e) => setName(e.target.value)} className="w-full p-2 border rounded" placeholder="e.g., New Lead Welcome" required />
+                        <label className="block text-sm font-bold mb-2 text-slate-700">Trigger Name</label>
+                        <input value={name} onChange={(e) => setName(e.target.value)} className="w-full p-2 border rounded text-slate-900" placeholder="e.g., New Lead Welcome" required />
                     </div>
                     <div>
-                        <label className="block text-sm font-bold mb-2">Trigger Type</label>
-                        <select value={type} onChange={(e) => setType(e.target.value as TriggerType)} className="w-full p-2 border rounded bg-white">
+                        <label className="block text-sm font-bold mb-2 text-slate-700">Trigger Type</label>
+                        <select value={type} onChange={(e) => setType(e.target.value as TriggerType)} className="w-full p-2 border rounded bg-white text-slate-900">
                             <option value="new-lead">When a new lead is created</option>
                             <option value="meeting-reminder">Before a meeting</option>
                             <option value="scheduled">On a specific date/time</option>
@@ -139,9 +196,9 @@ const TriggerModal: React.FC<{
                     
                     {type === 'meeting-reminder' && (
                         <div>
-                            <label className="block text-sm font-bold mb-2">Reminder Time</label>
+                            <label className="block text-sm font-bold mb-2 text-slate-700">Reminder Time</label>
                             <div className="flex items-center gap-2">
-                                <input type="number" value={minutesBefore} onChange={e => setMinutesBefore(parseInt(e.target.value, 10))} className="w-full p-2 border rounded" />
+                                <input type="number" value={minutesBefore} onChange={e => setMinutesBefore(parseInt(e.target.value, 10))} className="w-full p-2 border rounded text-slate-900" />
                                 <span className="text-slate-600">minutes before meeting</span>
                             </div>
                         </div>
@@ -150,12 +207,12 @@ const TriggerModal: React.FC<{
                     {type === 'scheduled' && (
                          <>
                             <div>
-                                <label className="block text-sm font-bold mb-2">Scheduled Time</label>
-                                <input type="datetime-local" value={dateTime} onChange={e => setDateTime(e.target.value)} className="w-full p-2 border rounded" required/>
+                                <label className="block text-sm font-bold mb-2 text-slate-700">Scheduled Time</label>
+                                <input type="datetime-local" value={dateTime} onChange={e => setDateTime(e.target.value)} className="w-full p-2 border rounded text-slate-900" required/>
                             </div>
                             <div>
-                                <label className="block text-sm font-bold mb-2">Send To Lead</label>
-                                <select value={targetLeadId} onChange={e => setTargetLeadId(e.target.value)} className="w-full p-2 border rounded bg-white" required>
+                                <label className="block text-sm font-bold mb-2 text-slate-700">Send To Lead</label>
+                                <select value={targetLeadId} onChange={e => setTargetLeadId(e.target.value)} className="w-full p-2 border rounded bg-white text-slate-900" required>
                                     <option value="" disabled>Select a lead...</option>
                                     {leads.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                                 </select>
@@ -164,16 +221,16 @@ const TriggerModal: React.FC<{
                     )}
 
                     <div>
-                        <label className="block text-sm font-bold mb-2">Send Template</label>
-                         <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} className="w-full p-2 border rounded bg-white" required>
+                        <label className="block text-sm font-bold mb-2 text-slate-700">Send Template</label>
+                         <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} className="w-full p-2 border rounded bg-white text-slate-900" required>
                             <option value="" disabled>Select a template...</option>
                             {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                         </select>
                     </div>
 
-                    <div className="flex justify-end gap-4 pt-4">
-                        <button type="button" onClick={onClose} className="bg-slate-200 px-4 py-2 rounded-lg">Cancel</button>
-                        <button type="submit" className="bg-sky-500 text-white px-4 py-2 rounded-lg">Save Trigger</button>
+                    <div className="flex justify-end gap-4 pt-6 border-t mt-6">
+                        <button type="button" onClick={onClose} className="bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold px-4 py-2 rounded-lg">Cancel</button>
+                        <button type="submit" className="bg-sky-500 hover:bg-sky-600 text-white font-bold px-4 py-2 rounded-lg">Save Trigger</button>
                     </div>
                 </form>
             </div>
@@ -190,6 +247,7 @@ const TriggersView: React.FC<{
 }> = ({ triggers, setTriggers, templates, leads }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingTrigger, setEditingTrigger] = useState<Trigger | null>(null);
+    const [triggerToDelete, setTriggerToDelete] = useState<Trigger | null>(null);
 
     const handleToggle = (id: string) => {
         const newTriggers = triggers.map(t => t.id === id ? { ...t, enabled: !t.enabled } : t);
@@ -206,6 +264,13 @@ const TriggersView: React.FC<{
     
     const handleDelete = (id: string) => {
         setTriggers(triggers.filter(t => t.id !== id));
+    };
+
+    const confirmDelete = () => {
+        if (triggerToDelete) {
+            handleDelete(triggerToDelete.id);
+            setTriggerToDelete(null);
+        }
     };
 
     const openModal = (trigger: Trigger | null) => {
@@ -235,6 +300,13 @@ const TriggersView: React.FC<{
     return (
         <div>
             <TriggerModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={handleSave} trigger={editingTrigger} templates={templates} leads={leads} />
+            <ConfirmationModal
+                isOpen={!!triggerToDelete}
+                onClose={() => setTriggerToDelete(null)}
+                onConfirm={confirmDelete}
+                title="Confirm Trigger Deletion"
+                message={<p>Are you sure you want to delete the trigger "<strong>{triggerToDelete?.name}</strong>"?</p>}
+            />
             <div className="flex justify-between items-center mb-4">
                 <h4 className="text-lg font-semibold text-slate-700">Triggers Setup</h4>
                 <button onClick={() => openModal(null)} className="bg-sky-500 text-white font-bold py-2 px-4 rounded-lg text-sm">+ Add Trigger</button>
@@ -249,7 +321,7 @@ const TriggersView: React.FC<{
                         <div className="flex items-center gap-4 ml-4">
                             <div className="flex gap-2 text-sm">
                                 <button onClick={() => openModal(trigger)} className="font-medium text-sky-600 hover:text-sky-800">Edit</button>
-                                <button onClick={() => handleDelete(trigger.id)} className="font-medium text-red-600 hover:text-red-800">Delete</button>
+                                <button onClick={() => setTriggerToDelete(trigger)} className="font-medium text-red-600 hover:text-red-800">Delete</button>
                             </div>
                             <label className="relative inline-flex items-center cursor-pointer">
                                 <input type="checkbox" checked={trigger.enabled} onChange={() => handleToggle(trigger.id)} className="sr-only peer" />
@@ -264,178 +336,136 @@ const TriggersView: React.FC<{
 };
 
 
-const FlowStepModal: React.FC<{
-    isOpen: boolean;
-    onClose: () => void;
-    onSave: (step: FlowStep) => void;
-    step: FlowStep | null;
-}> = ({ isOpen, onClose, onSave, step }) => {
-    if (!isOpen) return null;
-
-    const [incomingMsg, setIncomingMsg] = useState(step?.incomingMsg || '');
-    const [responseMsg, setResponseMsg] = useState(step?.responseMsg || '');
-    const [delayMinutes, setDelayMinutes] = useState(step?.delayMinutes || 0);
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        onSave({
-            id: step?.id || '', // Parent will handle ID generation for new steps
-            incomingMsg,
-            responseMsg,
-            delayMinutes: Number(delayMinutes),
-        });
-    };
-    
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4" onClick={onClose}>
-            <div className="bg-white p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
-                <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-xl font-semibold text-slate-800">{step ? 'Edit' : 'Add'} Flow Step</h3>
-                    <button onClick={onClose} className="text-slate-500 hover:text-slate-800 text-3xl leading-none">&times;</button>
-                </div>
-                <form onSubmit={handleSubmit} className="space-y-4">
-                    <div>
-                        <label className="block text-slate-700 text-sm font-bold mb-2" htmlFor="incomingMsg">Incoming Message (Trigger)</label>
-                        <input name="incomingMsg" type="text" value={incomingMsg} onChange={e => setIncomingMsg(e.target.value)} className="w-full px-3 py-2 border rounded-md" placeholder="e.g., 'price' or 'help'" required />
-                        <p className="text-xs text-slate-500 mt-1">When an incoming message contains this keyword, the flow will trigger.</p>
-                    </div>
-                     <div>
-                        <label className="block text-slate-700 text-sm font-bold mb-2" htmlFor="responseMsg">Response Message</label>
-                        <textarea name="responseMsg" value={responseMsg} onChange={e => setResponseMsg(e.target.value)} rows={3} className="w-full px-3 py-2 border rounded-md" placeholder="e.g., 'Hello! Here is a link to our pricing...'" required />
-                    </div>
-                    <div>
-                        <label className="block text-slate-700 text-sm font-bold mb-2" htmlFor="delay">Time Gap (Delay before sending)</label>
-                         <div className="relative">
-                            <input name="delay" type="number" value={delayMinutes} onChange={e => setDelayMinutes(Number(e.target.value))} min="0" className="w-full px-3 py-2 border rounded-md pr-16" />
-                            <span className="absolute inset-y-0 right-0 flex items-center pr-4 text-slate-500">minutes</span>
-                        </div>
-                    </div>
-                    <div className="mt-6 flex justify-end gap-4">
-                        <button type="button" onClick={onClose} className="bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold py-2 px-4 rounded-lg">Cancel</button>
-                        <button type="submit" className="bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-4 rounded-lg">Save Step</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    );
-};
-
-
-const FlowView: React.FC<{ flow: FlowStep[]; setFlow: (flow: FlowStep[]) => void }> = ({ flow, setFlow }) => {
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editingStep, setEditingStep] = useState<FlowStep | null>(null);
-
-    const handleAddStep = () => {
-        setEditingStep(null);
-        setIsModalOpen(true);
-    };
-    
-    const handleEditStep = (step: FlowStep) => {
-        setEditingStep(step);
-        setIsModalOpen(true);
-    };
-
-    const handleDeleteStep = (id: string) => {
-        setFlow(flow.filter(step => step.id !== id));
-    };
-
-    const handleSaveStep = (stepToSave: FlowStep) => {
-        if (stepToSave.id) { // Existing step
-            setFlow(flow.map(s => s.id === stepToSave.id ? stepToSave : s));
-        } else { // New step
-            setFlow([...flow, { ...stepToSave, id: `FLOW${Date.now()}` }]);
-        }
-        setIsModalOpen(false);
-    };
-    
-    return (
-        <div>
-             <FlowStepModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={handleSaveStep} step={editingStep} />
-             <div className="flex justify-between items-center mb-4">
-                <div>
-                    <h4 className="text-lg font-semibold text-slate-900">Flow Setup</h4>
-                    <p className="text-sm text-slate-500">Automate responses to incoming messages. Requires a configured webhook.</p>
-                </div>
-                <button onClick={handleAddStep} className="bg-sky-500 text-white font-bold py-2 px-4 rounded-lg text-sm flex-shrink-0">+ Add Step</button>
-            </div>
-            <div className="relative pl-6">
-                <div className="absolute left-[11px] top-0 bottom-0 w-0.5 bg-slate-300"></div>
-                {flow.map((step) => (
-                    <div key={step.id} className="relative mb-8 flex items-center">
-                        <div className={`z-10 absolute -left-[12px] w-6 h-6 rounded-full flex items-center justify-center text-white bg-indigo-500`}>
-                           <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                             <path d="M10 2a6 6 0 00-6 6v3.586l-1.707 1.707A1 1 0 003 15v4a1 1 0 001 1h12a1 1 0 001-1v-4a1 1 0 00-.293-.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z" />
-                           </svg>
-                        </div>
-                        <div className="ml-8 p-4 border rounded-lg bg-white w-full shadow-sm">
-                            <div className="flex justify-between items-start">
-                                <div className="flex-1 space-y-3">
-                                    <div>
-                                        <span className="text-xs font-semibold uppercase text-slate-500">When message contains:</span>
-                                        <p className="text-slate-800 bg-slate-50 p-2 rounded mt-1 font-mono">"{step.incomingMsg}"</p>
-                                    </div>
-                                    <div>
-                                        <span className="text-xs font-semibold uppercase text-slate-500">Wait {step.delayMinutes} min and reply with:</span>
-                                        <p className="text-slate-800 bg-slate-50 p-2 rounded mt-1">"{step.responseMsg}"</p>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-2 ml-4">
-                                    <button onClick={() => handleEditStep(step)} className="text-slate-500 hover:text-sky-600 p-1 rounded-full hover:bg-slate-100 transition-colors">
-                                        <EditIcon />
-                                    </button>
-                                    <button onClick={() => handleDeleteStep(step.id)} className="text-slate-500 hover:text-red-600 p-1 rounded-full hover:bg-slate-100 transition-colors">
-                                        <DeleteIcon />
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                ))}
-            </div>
-             {flow.length === 0 && (
-                <div className="text-center py-10 text-slate-500 border-2 border-dashed rounded-lg">
-                    <p>No flow steps defined.</p>
-                    <p className="text-sm">Click "+ Add Step" to create your first automation.</p>
-                </div>
-            )}
-        </div>
-    );
-};
-
 const TemplateModal: React.FC<{ isOpen: boolean; onClose: () => void; onSave: (template: MessageTemplate) => void; template: MessageTemplate | null }> = ({ isOpen, onClose, onSave, template }) => {
     if (!isOpen) return null;
 
+    const [name, setName] = useState(template?.name || '');
+    const [content, setContent] = useState(template?.content || '');
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+    useEffect(() => {
+        setName(template?.name || '');
+        setContent(template?.content || '');
+    }, [template]);
+
     const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
-        const formData = new FormData(e.currentTarget);
         const savedTemplate = {
             id: template?.id || '',
-            name: formData.get('name') as string,
-            content: formData.get('content') as string,
+            name,
+            content,
             lastUpdated: new Date().toISOString().split('T')[0],
         };
         onSave(savedTemplate);
         onClose();
     };
 
+    const insertVariable = (variable: string) => {
+        if (!textareaRef.current) return;
+        const { selectionStart, selectionEnd, value } = textareaRef.current;
+        const newContent = value.substring(0, selectionStart) + variable + value.substring(selectionEnd);
+        setContent(newContent);
+        
+        // Use a timeout to ensure the state update has rendered before focusing
+        setTimeout(() => {
+            if (textareaRef.current) {
+                textareaRef.current.focus();
+                const newCursorPos = selectionStart + variable.length;
+                textareaRef.current.setSelectionRange(newCursorPos, newCursorPos);
+            }
+        }, 0);
+    };
+
+    const renderPreviewContent = (text: string) => {
+        const sampleData: { [key: string]: string } = {
+            name: 'Praveen',
+            mobile: '9876543210',
+            profession: 'Software Engineer',
+            city: 'Bangalore',
+        };
+        const parts = text.split(/(\{\{\w+\}\})/g);
+        
+        if (text.trim() === '') {
+            return <span className="text-slate-400 italic">Your message will appear here...</span>;
+        }
+
+        return parts.map((part, index) => {
+            if (part.match(/\{\{(\w+)\}\}/)) {
+                const varName = part.replace(/[{}]/g, '');
+                return (
+                    <span key={index} className="font-bold text-sky-700 bg-sky-200/50 rounded-sm px-1 py-0.5">
+                        {sampleData[varName] || 'Sample Data'}
+                    </span>
+                );
+            }
+            // Preserve line breaks from the textarea
+            return part.split('\n').map((line, i) => <React.Fragment key={`${index}-${i}`}>{line}{i < part.split('\n').length - 1 && <br />}</React.Fragment>);
+        });
+    };
+
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4" onClick={onClose}>
-            <div className="bg-white p-8 rounded-xl w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
-                <h3 className="text-xl font-semibold mb-4">{template ? 'Edit' : 'Add'} Template</h3>
-                <form onSubmit={handleSubmit}>
-                    <div className="mb-4">
-                        <label className="block text-sm font-bold mb-2">Template Name</label>
-                        <input name="name" defaultValue={template?.name} className="w-full p-2 border rounded" required />
+            <div className="bg-white rounded-xl w-full max-w-4xl shadow-xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                <div className="bg-slate-800 p-4">
+                    <h3 className="text-xl font-semibold text-white">{template ? 'Edit Template' : 'Add New Template'}</h3>
+                </div>
+                <div className="flex flex-col md:flex-row">
+                    {/* Left Side: Form */}
+                    <div className="w-full md:w-1/2 p-6 border-r border-slate-200">
+                        <form id="templateForm" onSubmit={handleSubmit} className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-bold mb-2 text-slate-700">Template Name</label>
+                                <input value={name} onChange={(e) => setName(e.target.value)} className="w-full p-2 border border-black bg-white rounded text-slate-900" required />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-bold mb-2 text-slate-700">Content</label>
+                                <textarea
+                                    ref={textareaRef}
+                                    value={content}
+                                    onChange={(e) => setContent(e.target.value)}
+                                    rows={6}
+                                    className="w-full p-2 border border-black bg-white rounded text-slate-900 font-sans"
+                                    required
+                                />
+                            </div>
+                             <div>
+                                <label className="block text-sm font-bold mb-2 text-slate-700">Add Sample Variables</label>
+                                <div className="flex flex-wrap gap-2">
+                                     {['{{name}}', '{{mobile}}', '{{profession}}', '{{city}}'].map(variable => (
+                                        <button
+                                            key={variable}
+                                            type="button"
+                                            onClick={() => insertVariable(variable)}
+                                            className="bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-mono font-bold py-1 px-2 rounded-md"
+                                        >
+                                            {variable}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </form>
                     </div>
-                    <div className="mb-4">
-                        <label className="block text-sm font-bold mb-2">Content</label>
-                        <textarea name="content" defaultValue={template?.content} rows={4} className="w-full p-2 border rounded" required />
+
+                    {/* Right Side: Preview */}
+                    <div className="w-full md:w-1/2 p-6 bg-slate-50 flex flex-col justify-center items-center">
+                        <p className="font-semibold text-slate-700 mb-4">Message Preview</p>
+                        <div className="w-full max-w-xs">
+                            <div className="bg-[#DCF8C6] p-2 rounded-lg shadow-sm ml-auto max-w-full break-words">
+                                <p className="text-sm text-slate-800 whitespace-pre-wrap">
+                                    {renderPreviewContent(content)}
+                                </p>
+                                <div className="text-right text-xs text-slate-400 mt-1">
+                                    {new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <div className="flex justify-end gap-4">
-                        <button type="button" onClick={onClose} className="bg-slate-200 px-4 py-2 rounded-lg">Cancel</button>
-                        <button type="submit" className="bg-sky-500 text-white px-4 py-2 rounded-lg">Save</button>
-                    </div>
-                </form>
+                </div>
+
+                 <div className="flex justify-end gap-4 p-4 bg-slate-100 border-t">
+                    <button type="button" onClick={onClose} className="bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold px-4 py-2 rounded-lg">Cancel</button>
+                    <button type="submit" form="templateForm" className="bg-sky-500 hover:bg-sky-600 text-white font-bold px-4 py-2 rounded-lg">Save</button>
+                </div>
             </div>
         </div>
     );
@@ -445,7 +475,7 @@ const TemplateModal: React.FC<{ isOpen: boolean; onClose: () => void; onSave: (t
 const ConnectGreenApiModal: React.FC<{ 
     isOpen: boolean; 
     onClose: () => void; 
-    onConnect: (instanceId: string, apiKey: string, webhookUrl: string) => void;
+    onConnect: (instanceId: string, apiKey: string) => void;
     config: GreenApiConfig | null;
 }> = ({ isOpen, onClose, onConnect, config }) => {
     if (!isOpen) return null;
@@ -454,8 +484,7 @@ const ConnectGreenApiModal: React.FC<{
         const formData = new FormData(e.currentTarget);
         onConnect(
             formData.get('instanceId') as string, 
-            formData.get('apiKey') as string,
-            formData.get('webhookUrl') as string,
+            formData.get('apiKey') as string
         );
     };
 
@@ -482,20 +511,6 @@ const ConnectGreenApiModal: React.FC<{
                     <div className="mb-4">
                         <label className="block text-sm font-bold mb-2 text-slate-800" htmlFor="apiKey">API Key Token</label>
                         <input name="apiKey" id="apiKey" type="password" className="w-full p-2 border rounded" required defaultValue={config?.apiKey || ''} />
-                    </div>
-                     <div className="mb-4">
-                        <label className="block text-sm font-bold mb-2 text-slate-800" htmlFor="webhookUrl">Webhook URL (Optional)</label>
-                        <input 
-                            name="webhookUrl" 
-                            id="webhookUrl"
-                            type="url"
-                            className="w-full p-2 border rounded" 
-                            placeholder="https://your-backend.com/webhook"
-                            defaultValue={config?.webhookUrl || ''}
-                        />
-                        <p className="text-xs text-slate-700 mt-1">
-                            Required for the "Flow Setup". Your backend endpoint where Green API sends incoming message data.
-                        </p>
                     </div>
                      <div className="mt-6 flex justify-end gap-4">
                         <button type="button" onClick={onClose} className="bg-slate-200 hover:bg-slate-300 font-bold py-2 px-4 rounded-lg">Cancel</button>
@@ -571,281 +586,28 @@ const TestConnectionModal: React.FC<{
     );
 };
 
-const WebhookGuideModal: React.FC<{ isOpen: boolean; onClose: () => void; userId: string | undefined }> = ({ isOpen, onClose, userId }) => {
-    if (!isOpen) return null;
-    
-    const webhookUrl = `https://<YOUR_VERCEL_APP_URL>/api/webhook?userId=${userId || 'YOUR_USER_ID'}`;
-
-    const webhookCode = `
-// File: /api/webhook.js
-// You will need to install firebase-admin: npm install firebase-admin
-import admin from 'firebase-admin';
-
-// --- Configuration ---
-// In Vercel, set Environment Variables for these:
-// GOOGLE_APPLICATION_CREDENTIALS: The JSON content of your Firebase service account key.
-// DATABASE_URL: Your Firebase Realtime Database URL.
-// ---
-
-if (!admin.apps.length) {
-  // Vercel may try to re-initialize the app, so we check first.
-  admin.initializeApp({
-    credential: admin.credential.applicationDefault(),
-    databaseURL: process.env.DATABASE_URL,
-  });
-}
-const db = admin.database();
-
-// Helper to send a WhatsApp message via Green API
-const sendWhatsAppMessage = async (config, mobile, message) => {
-    if (!config || !config.instanceId || !config.apiKey) return;
-    const [instanceId, customHost] = (config.instanceId || '').split(':');
-    const apiHost = customHost || 'api.green-api.com';
-    const chatId = \`91\${mobile}@c.us\`;
-    const url = \`https://\${apiHost}/waInstance\${instanceId}/sendMessage/\${config.apiKey}\`;
-    
-    await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chatId, message }),
-    });
-};
-
-export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ message: 'Method Not Allowed' });
-  }
-
-  const { userId } = req.query;
-  if (!userId) return res.status(400).json({ message: 'User ID is required.' });
-
-  const body = req.body;
-  const incomingMsg = body?.messageData?.textMessageData?.textMessage?.toLowerCase();
-  const senderChatId = body?.senderData?.chatId;
-
-  if (!incomingMsg || !senderChatId) {
-    return res.status(200).json({ message: 'Not a relevant message type.' });
-  }
-
-  try {
-    const userSnapshot = await db.ref(\`users/\${userId}\`).once('value');
-    const userData = userSnapshot.val();
-
-    if (!userData?.flow || !userData.greenApiConfig) {
-      return res.status(404).json({ message: 'User configuration not found.' });
-    }
-
-    const flowSteps = Object.values(userData.flow);
-    const matchingStep = flowSteps.find(step => incomingMsg.includes((step.incomingMsg || '').toLowerCase()));
-
-    if (matchingStep) {
-      setTimeout(async () => {
-        const mobile = senderChatId.split('@')[0].substring(2);
-        await sendWhatsAppMessage(userData.greenApiConfig, mobile, matchingStep.responseMsg);
-      }, matchingStep.delayMinutes * 60 * 1000);
-    }
-    
-    res.status(200).json({ message: 'Webhook processed.' });
-  } catch (error) {
-    console.error(\`Webhook error for user \${userId}:\`, error);
-    res.status(500).json({ message: 'Internal Server Error' });
-  }
-}
-`;
-    const cronCode = `
-// File: /api/cron.js
-import admin from 'firebase-admin';
-
-// --- Configuration (Same as webhook) ---
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.applicationDefault(),
-    databaseURL: process.env.DATABASE_URL,
-  });
-}
-const db = admin.database();
-// You will also need a CRON_SECRET environment variable. Create a long, random string for it.
-
-// Helper to send a WhatsApp message via Green API (can be shared)
-const sendWhatsAppMessage = async (config, mobile, message) => {
-    if (!config || !config.instanceId || !config.apiKey) return;
-    const [instanceId, customHost] = (config.instanceId || '').split(':');
-    const apiHost = customHost || 'api.green-api.com';
-    const chatId = \`91\${mobile}@c.us\`;
-    const url = \`https://\${apiHost}/waInstance\${instanceId}/sendMessage/\${config.apiKey}\`;
-    
-    await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chatId, message }),
-    });
-};
-
-export default async function handler(req, res) {
-  // Secure your cron job endpoint
-  if (req.headers['authorization'] !== \`Bearer \${process.env.CRON_SECRET}\`) {
-    return res.status(401).json({ message: 'Unauthorized' });
-  }
-
-  try {
-    const usersSnapshot = await db.ref('users').once('value');
-    const users = usersSnapshot.val();
-    if (!users) {
-        return res.status(200).json({ message: 'No users to process.' });
-    }
-
-    const now = new Date();
-
-    for (const userId in users) {
-      const user = users[userId];
-      if (!user.greenApiConfig || !user.triggers) continue;
-      
-      const leads = Object.values(user.leads || {});
-      const templates = Object.values(user.templates || {});
-      const triggers = Object.entries(user.triggers || {}).map(([id, val]) => ({ id, ...val }));
-      const meetings = Object.entries(user.meetings || {}).map(([id, val]) => ({ id, ...val }));
-      
-      // Process scheduled triggers
-      for (const trigger of triggers.filter(t => t.type === 'scheduled' && t.enabled && !t.config?.sent)) {
-          const scheduledTime = new Date(trigger.config.dateTime);
-          if (scheduledTime <= now) {
-            const lead = leads.find(l => l.id === trigger.config.leadId);
-            const template = templates.find(t => t.id === trigger.templateId);
-            if (lead && template) {
-              const message = template.content.replace('{{name}}', lead.name);
-              await sendWhatsAppMessage(user.greenApiConfig, lead.mobile, message);
-              await db.ref(\`users/\${userId}/triggers/\${trigger.id}/config/sent\`).set(true);
-            }
-          }
-      }
-
-      // Process meeting reminders
-      for (const trigger of triggers.filter(t => t.type === 'meeting-reminder' && t.enabled)) {
-          for (const meeting of meetings) {
-            const meetingStartTime = new Date(meeting.startTime);
-            if (meetingStartTime < now || meeting.remindersSent?.[trigger.id]) continue;
-
-            const reminderTime = new Date(meetingStartTime.getTime() - (trigger.config.minutesBefore * 60 * 1000));
-            if (reminderTime <= now) {
-              const lead = leads.find(l => l.name === meeting.attendee);
-              const template = templates.find(t => t.id === trigger.templateId);
-              if (lead && template) {
-                  const message = template.content.replace('{{name}}', lead.name);
-                  await sendWhatsAppMessage(user.greenApiConfig, lead.mobile, message);
-                  await db.ref(\`users/\${userId}/meetings/\${meeting.id}/remindersSent/\${trigger.id}\`).set(true);
-              }
-            }
-          }
-      }
-    }
-
-    res.status(200).json({ message: 'Cron job executed successfully.' });
-  } catch (error) {
-    console.error('Cron job error:', error);
-    res.status(500).json({ message: 'Internal Server Error' });
-  }
-}
-`;
-    const vercelJsonConfig = `
-// File: vercel.json (in your project's root directory)
-{
-  "crons": [
-    {
-      "path": "/api/cron",
-      "schedule": "* * * * *"
-    }
-  ]
-}
-`;
-
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-start p-4 overflow-y-auto" onClick={onClose}>
-            <div className="bg-white mt-8 mb-8 p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-4xl" onClick={(e) => e.stopPropagation()}>
-                <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-xl font-semibold text-slate-800">Backend Automation Setup Guide (Vercel)</h3>
-                    <button onClick={onClose} className="text-slate-500 hover:text-slate-800 text-3xl leading-none">&times;</button>
-                </div>
-                <div className="prose prose-slate max-w-none">
-                    <p>For automated messaging (Triggers & Flows) to work, you must deploy a backend service. This guide provides all the necessary code and steps to deploy on Vercel.</p>
-                    
-                    <h4>Step 1: Firebase Admin SDK Setup</h4>
-                    <p>Your backend needs admin access to your Firebase project.</p>
-                    <ol>
-                        <li>In your project terminal, install the Firebase Admin SDK: <code>npm install firebase-admin</code></li>
-                        <li>Go to your <a href="https://console.firebase.google.com/" target="_blank" rel="noopener noreferrer">Firebase project settings</a>, click on "Service Accounts", and "Generate new private key". A JSON file will be downloaded.</li>
-                        <li>In your Vercel project's settings, go to "Environment Variables" and create the following:
-                            <ul>
-                                <li><code>GOOGLE_APPLICATION_CREDENTIALS</code>: Paste the <strong>entire content</strong> of the JSON file you just downloaded.</li>
-                                <li><code>DATABASE_URL</code>: Your Firebase Realtime Database URL (e.g., <code>https://your-project-id.firebaseio.com</code>).</li>
-                                <li><code>CRON_SECRET</code>: Create a long, random, and secure string (e.g., from a password generator). This will protect your cron job endpoint.</li>
-                            </ul>
-                        </li>
-                    </ol>
-
-                    <h4>Step 2: Create the Webhook for "Flows"</h4>
-                    <p>This serverless function receives incoming message data from Green API to trigger your automated flows.</p>
-                     <ol>
-                        <li>Create a new file in your project: <code>/api/webhook.js</code>.</li>
-                        <li>Copy and paste the code below into the file.</li>
-                    </ol>
-                    <CodeBlock code={webhookCode} />
-                    <p>After deploying, you must update the "Webhook URL" in this CRM to: <code className="text-sm bg-slate-200 p-1 rounded">{webhookUrl}</code>. Green API will then send incoming messages to this endpoint.</p>
-
-                    <h4>Step 3: Create the Cron Job for "Triggers"</h4>
-                    <p>This function runs on a schedule to handle time-based triggers like scheduled messages and meeting reminders.</p>
-                    <ol>
-                        <li>Create a new file in your project: <code>/api/cron.js</code>.</li>
-                        <li>Copy and paste the code below into the file.</li>
-                    </ol>
-                    <CodeBlock code={cronCode} />
-
-                    <h4>Step 4: Configure the Cron Schedule</h4>
-                    <p>Tell Vercel how often to run your cron job function.</p>
-                    <ol>
-                        <li>Create a new file in your project's root directory named <code>vercel.json</code>.</li>
-                        <li>Copy and paste the configuration below. The schedule <code>"* * * * *"</code> means it will run every minute.</li>
-                    </ol>
-                    <CodeBlock code={vercelJsonConfig} />
-
-                    <div className="p-4 bg-sky-50 border-l-4 border-sky-500 mt-6">
-                        <p><strong>Deployment:</strong> Once these files are in place and your environment variables are set, deploy your project to Vercel. Your automation backend will be live.</p>
-                    </div>
-
-                    <div className="mt-8 flex justify-end">
-                         <button type="button" onClick={onClose} className="bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-4 rounded-lg">Understood</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-
 interface GreenApiProps {
     templates: MessageTemplate[]; 
     onSaveTemplate: (template: MessageTemplate) => void;
     onDeleteTemplate: (id: string) => void;
     triggers: Trigger[]; 
     setTriggers: (triggers: Trigger[]) => void;
-    flow: FlowStep[]; 
-    setFlow: (flow: FlowStep[]) => void;
     greenApiConfig: GreenApiConfig | null;
-    onConnect: (instanceId: string, apiKey: string, webhookUrl: string) => void;
+    onConnect: (instanceId: string, apiKey: string) => void;
     onDisconnect: () => void;
     leads: Lead[];
 }
 
-const GreenApi: React.FC<GreenApiProps> = ({ templates, onSaveTemplate, onDeleteTemplate, triggers, setTriggers, flow, setFlow, greenApiConfig, onConnect, onDisconnect, leads }) => {
+const GreenApi: React.FC<GreenApiProps> = ({ templates, onSaveTemplate, onDeleteTemplate, triggers, setTriggers, greenApiConfig, onConnect, onDisconnect, leads }) => {
     const { user } = useAuth();
     const [activeTab, setActiveTab] = useState<GreenApiTab>('triggers');
     const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
     const [isTestModalOpen, setIsTestModalOpen] = useState(false);
-    const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
     
     const isConnected = !!greenApiConfig;
 
-    const handleConnect = (instanceId: string, apiKey: string, webhookUrl: string) => {
-        onConnect(instanceId, apiKey, webhookUrl);
+    const handleConnect = (instanceId: string, apiKey: string) => {
+        onConnect(instanceId, apiKey);
         setIsConnectModalOpen(false);
     };
 
@@ -863,23 +625,10 @@ const GreenApi: React.FC<GreenApiProps> = ({ templates, onSaveTemplate, onDelete
                 config={greenApiConfig}
             />
             <TestConnectionModal isOpen={isTestModalOpen} onClose={() => setIsTestModalOpen(false)} onSendTest={handleSendTestMessage} />
-            <WebhookGuideModal isOpen={isGuideModalOpen} onClose={() => setIsGuideModalOpen(false)} userId={user?.uid} />
 
             <div className="bg-white p-6 rounded-xl shadow-md space-y-8">
                 <div>
                     <h3 className="text-xl font-semibold text-slate-800 mb-6">Green API Integration</h3>
-
-                     <div className="bg-amber-50 border-l-4 border-amber-500 text-amber-900 p-4 mb-6 rounded-r-lg" role="alert">
-                        <p className="font-bold">Important: Automation Requires a Backend Server</p>
-                        <div className="flex justify-between items-center flex-wrap gap-2">
-                             <p className="text-sm">
-                                All automated messaging features (Triggers & Flows) must run on a backend server to work reliably. You need to deploy server-side code to handle webhooks and scheduled tasks.
-                            </p>
-                            <button onClick={() => setIsGuideModalOpen(true)} className="ml-auto flex-shrink-0 bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-3 rounded-lg text-sm transition-colors">
-                                View Setup Guide
-                            </button>
-                        </div>
-                    </div>
 
                     <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                          <h4 className="font-semibold text-slate-800 mb-2">Connection Status</h4>
@@ -889,9 +638,6 @@ const GreenApi: React.FC<GreenApiProps> = ({ templates, onSaveTemplate, onDelete
                                     Status: 
                                     {isConnected ? <span className="font-bold text-green-500"> Connected</span> : <span className="font-bold text-red-500"> Not Connected</span>}
                                 </p>
-                                {isConnected && greenApiConfig?.webhookUrl && (
-                                    <p className="text-xs text-slate-500 mt-1">Webhook active at: <code className="bg-slate-200 text-slate-700 px-1 py-0.5 rounded">{greenApiConfig.webhookUrl}</code></p>
-                                )}
                             </div>
                             <div className="flex items-center gap-2 mt-3 sm:mt-0">
                                 {isConnected && (
@@ -917,13 +663,11 @@ const GreenApi: React.FC<GreenApiProps> = ({ templates, onSaveTemplate, onDelete
                     <div className="flex space-x-2 border-b mb-6 pb-2">
                         <TabButton label="Triggers Setup" isActive={activeTab === 'triggers'} onClick={() => setActiveTab('triggers')} />
                         <TabButton label="Manage Templates" isActive={activeTab === 'templates'} onClick={() => setActiveTab('templates')} />
-                        <TabButton label="Flow Setup" isActive={activeTab === 'flow'} onClick={() => setActiveTab('flow')} />
                     </div>
 
                     <div>
                         {activeTab === 'templates' && <TemplatesView templates={templates} onSave={onSaveTemplate} onDelete={onDeleteTemplate} />}
                         {activeTab === 'triggers' && <TriggersView triggers={triggers} setTriggers={setTriggers} templates={templates} leads={leads} />}
-                        {activeTab === 'flow' && <FlowView flow={flow} setFlow={setFlow} />}
                     </div>
                 </div>
             </div>

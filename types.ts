@@ -44,33 +44,61 @@ export interface Trigger {
 }
 
 
-export interface FlowStep {
+export interface ThankYouPage {
   id: string;
-  incomingMsg: string;
-  responseMsg: string;
-  delayMinutes: number;
+  name: string;
+  path: string;
 }
 
 export interface LandingPage {
     id: string;
     name: string;
-    redirectUrl: string;
+    thankYouPageId: string;
     createdDate: string;
     leadsCount: number;
 }
 
-export interface Meeting {
+export type QuestionType = 'text' | 'textarea' | 'radio' | 'checkbox' | 'dropdown';
+
+export interface BookingQuestion {
     id: string;
+    label: string;
+    type: QuestionType;
+    required: boolean;
+    options?: string[];
+}
+
+export interface Meeting {
+    id:string;
     title: string;
     attendee: string;
     startTime: Date;
     endTime: Date;
+    mobile?: string;
+    bookingAnswers?: Record<string, string | string[]>;
 }
+
+export interface DayAvailability {
+    enabled: boolean;
+    startTime: string;
+    endTime: string;
+}
+
+export interface AvailabilitySettings {
+    schedule: {
+        [day: string]: DayAvailability;
+    };
+    duration: number;
+    buffer: number;
+    bookingWindowDays?: number;
+    minBookingNoticeHours?: number;
+    bookingQuestions?: BookingQuestion[];
+}
+
 
 export interface GreenApiConfig {
   instanceId: string;
   apiKey: string;
-  webhookUrl?: string;
 }
 
 export enum Page {

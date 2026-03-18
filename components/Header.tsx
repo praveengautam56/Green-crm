@@ -1,6 +1,4 @@
-
-
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Admin, Page } from '../types';
 import { LogoutIcon } from '../constants';
 
@@ -96,6 +94,20 @@ interface HeaderProps {
 const Header: React.FC<HeaderProps> = ({ currentPage, adminUser, onUpdateAdmin, onLogout, onToggleSidebar }) => {
     const [dropdownOpen, setDropdownOpen] = useState(false);
     const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setDropdownOpen(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [dropdownRef]);
 
     const handleOpenProfile = () => {
         setIsProfileModalOpen(true);
@@ -123,9 +135,9 @@ const Header: React.FC<HeaderProps> = ({ currentPage, adminUser, onUpdateAdmin, 
                     </button>
                     <h2 className="text-xl sm:text-2xl font-semibold text-slate-700">{currentPage}</h2>
                 </div>
-                <div className="relative">
+                <div className="relative" ref={dropdownRef}>
                     <div className="flex items-center cursor-pointer" onClick={() => setDropdownOpen(!dropdownOpen)}>
-                        <img src={adminUser.avatarUrl} alt="Admin" className="w-10 h-10 rounded-full object-cover" />
+                        <img src={adminUser.avatarUrl} alt="User" className="w-10 h-10 rounded-full object-cover" />
                         <div className="ml-3 hidden sm:block">
                             <p className="font-semibold text-slate-800">{adminUser.name}</p>
                             <p className="text-sm text-slate-500">{adminUser.role}</p>

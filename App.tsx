@@ -1,6 +1,5 @@
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Page, Lead, MessageTemplate, Trigger, LandingPage, Meeting, FlowStep, LeadStatus, Admin, GreenApiConfig } from './types';
+import { Page, Lead, MessageTemplate, Trigger, LandingPage, Meeting, LeadStatus, Admin, GreenApiConfig, ThankYouPage, AvailabilitySettings } from './types';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import Dashboard from './components/Dashboard';
@@ -11,6 +10,7 @@ import Calendar from './components/Calendar';
 import HomePage from './components/HomePage';
 import { useAuth } from './hooks/useAuth';
 import { crmService } from './services/crmService';
+import PublicBookingPage from './components/PublicBookingPage';
 
 const App: React.FC = () => {
     const { user, signOut, loading: authLoading } = useAuth();
@@ -21,13 +21,24 @@ const App: React.FC = () => {
     const [leads, setLeads] = useState<Lead[]>([]);
     const [templates, setTemplates] = useState<MessageTemplate[]>([]);
     const [triggers, setTriggers] = useState<Trigger[]>([]);
-    const [flow, setFlow] = useState<FlowStep[]>([]);
     const [landingPages, setLandingPages] = useState<LandingPage[]>([]);
+    const [thankYouPages, setThankYouPages] = useState<ThankYouPage[]>([]);
     const [meetings, setMeetings] = useState<Meeting[]>([]);
     const [leadStatuses, setLeadStatuses] = useState<LeadStatus[]>([]);
     const [adminUser, setAdminUser] = useState<Admin | null>(null);
     const [greenApiConfig, setGreenApiConfig] = useState<GreenApiConfig | null>(null);
+    const [availabilitySettings, setAvailabilitySettings] = useState<AvailabilitySettings | null>(null);
     const [loadingData, setLoadingData] = useState(true);
+    const [publicBookingUserId, setPublicBookingUserId] = useState<string | null>(null);
+
+     useEffect(() => {
+        // Check for public booking URL on initial load
+        const urlParams = new URLSearchParams(window.location.search);
+        const bookingUserId = urlParams.get('booking');
+        if (bookingUserId) {
+            setPublicBookingUserId(bookingUserId);
+        }
+    }, []);
 
     useEffect(() => {
         if (!user) {
@@ -36,12 +47,13 @@ const App: React.FC = () => {
             setLeads([]);
             setTemplates([]);
             setTriggers([]);
-            setFlow([]);
             setLandingPages([]);
+            setThankYouPages([]);
             setMeetings([]);
             setLeadStatuses([]);
             setAdminUser(null);
             setGreenApiConfig(null);
+            setAvailabilitySettings(null);
             return;
         }
 
@@ -51,12 +63,13 @@ const App: React.FC = () => {
                 setLeads(data.leads);
                 setTemplates(data.templates);
                 setTriggers(data.triggers);
-                setFlow(data.flow);
                 setLandingPages(data.landingPages);
+                setThankYouPages(data.thankYouPages);
                 setMeetings(data.meetings);
                 setLeadStatuses(data.leadStatuses);
                 setAdminUser(data.adminUser);
                 setGreenApiConfig(data.greenApiConfig || null);
+                setAvailabilitySettings(data.availabilitySettings || null);
             }
             setLoadingData(false);
         });
@@ -104,14 +117,14 @@ const App: React.FC = () => {
         crmService.updateTriggers(user.uid, newTriggers);
     };
 
-    const updateFlow = (newFlow: FlowStep[]) => {
-        if (!user) return;
-        crmService.updateFlow(user.uid, newFlow);
-    };
-    
     const handleAddMeeting = (meeting: Omit<Meeting, 'id'>) => {
         if (!user) return;
         crmService.addMeeting(user.uid, meeting);
+    }
+
+    const handleDeleteMeeting = (meetingId: string) => {
+        if (!user) return;
+        crmService.deleteMeeting(user.uid, meetingId);
     }
     
     const updateAdminUser = (updatedUser: Admin) => {
@@ -119,15 +132,71 @@ const App: React.FC = () => {
          crmService.updateAdminUser(user.uid, updatedUser);
     }
 
-    const handleConnectGreenApi = (instanceId: string, apiKey: string, webhookUrl: string) => {
+    const handleConnectGreenApi = (instanceId: string, apiKey: string) => {
         if (!user) return;
-        crmService.saveGreenApiConfig(user.uid, instanceId, apiKey, webhookUrl);
+        crmService.saveGreenApiConfig(user.uid, instanceId, apiKey);
     };
 
     const handleDisconnectGreenApi = () => {
         if (!user) return;
         crmService.deleteGreenApiConfig(user.uid);
     };
+
+    const handleSaveLandingPage = (page: LandingPage) => {
+        if (!user) return;
+        crmService.saveLandingPage(user.uid, page);
+    };
+
+    const handleSaveThankYouPage = (page: ThankYouPage) => {
+        if (!user) return;
+        crmService.saveThankYouPage(user.uid, page);
+    };
+    
+    const handleDeleteThankYouPage = (pageId: string) => {
+        if (!user) return;
+        // Also check if any landing page is using this thank you page
+        const isUsed = landingPages.some(lp => lp.thankYouPageId === pageId);
+        if (isUsed) {
+            alert("This Thank You page is currently linked to one or more landing pages. Please change their redirect URL before deleting.");
+            return;
+        }
+        crmService.deleteThankYouPage(user.uid, pageId);
+    };
+    
+    const handleAddLandingPage = (pageData: { name: string; thankYouPageId: string }) => {
+        if (!user) return;
+        crmService.addLandingPage(user.uid, pageData);
+    };
+
+    const handleUpdateAvailabilitySettings = (settings: AvailabilitySettings) => {
+        if (!user) return;
+        crmService.updateAvailabilitySettings(user.uid, settings);
+    };
+
+    const handleSendMessage = useCallback(async (leadId: string, templateId: string): Promise<{ success: boolean; message: string }> => {
+        if (!user) return { success: false, message: "User not logged in." };
+        
+        const lead = leads.find(l => l.id === leadId);
+        const template = templates.find(t => t.id === templateId);
+
+        if (!lead || !template) {
+            return { success: false, message: "Lead or template not found." };
+        }
+
+        // Simple variable replacement
+        let message = template.content;
+        message = message.replace(/\{\{name\}\}/g, lead.name);
+        message = message.replace(/\{\{mobile\}\}/g, lead.mobile);
+        message = message.replace(/\{\{profession\}\}/g, lead.profession);
+        message = message.replace(/\{\{city\}\}/g, lead.city);
+        message = message.replace(/\{\{state\}\}/g, lead.state);
+
+        return await crmService.sendConfiguredWhatsAppMessage(user.uid, lead.mobile, message);
+    }, [user, leads, templates]);
+
+    if (publicBookingUserId) {
+        return <PublicBookingPage userId={publicBookingUserId} />;
+    }
 
     if (authLoading || (user && loadingData)) {
         return (
@@ -156,6 +225,7 @@ const App: React.FC = () => {
                     onLogout={handleLogout}
                     leads={leads}
                     leadStatuses={leadStatuses}
+                    accountCreationDate={user?.metadata.creationTime}
                 />;
             case Page.Leads:
                 return <Leads 
@@ -165,6 +235,8 @@ const App: React.FC = () => {
                     setLeadStatuses={updateLeadStatuses}
                     onDeleteLeads={handleDeleteLeads}
                     onUpdateLead={handleUpdateLead}
+                    templates={templates}
+                    onSendMessage={handleSendMessage}
                 />;
             case Page.GreenApi:
                 return <GreenApi 
@@ -173,23 +245,36 @@ const App: React.FC = () => {
                     onDeleteTemplate={handleDeleteTemplate}
                     triggers={triggers} 
                     setTriggers={updateTriggers} 
-                    flow={flow} 
-                    setFlow={updateFlow} 
                     greenApiConfig={greenApiConfig}
                     onConnect={handleConnectGreenApi}
                     onDisconnect={handleDisconnectGreenApi}
                     leads={leads}
                 />;
             case Page.LandingPages:
-                return <LandingPages landingPages={landingPages} setLandingPages={() => {}} onAddNewLead={handleAddNewLead} />;
+                return <LandingPages 
+                    landingPages={landingPages} 
+                    thankYouPages={thankYouPages}
+                    onSaveLandingPage={handleSaveLandingPage}
+                    onSaveThankYouPage={handleSaveThankYouPage}
+                    onDeleteThankYouPage={handleDeleteThankYouPage}
+                    onAddNewLead={handleAddNewLead} 
+                    onAddLandingPage={handleAddLandingPage} />;
             case Page.Calendar:
-                return <Calendar meetings={meetings} onAddMeeting={handleAddMeeting} />;
+                return <Calendar 
+                            meetings={meetings} 
+                            onAddMeeting={handleAddMeeting} 
+                            onDeleteMeeting={handleDeleteMeeting}
+                            availabilitySettings={availabilitySettings}
+                            onUpdateAvailability={handleUpdateAvailabilitySettings}
+                            userId={user.uid}
+                        />;
             default:
                 return <Dashboard 
                     adminUser={adminUser} 
                     onLogout={handleLogout} 
                     leads={leads}
                     leadStatuses={leadStatuses}
+                    accountCreationDate={user?.metadata.creationTime}
                 />;
         }
     };

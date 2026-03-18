@@ -1,18 +1,16 @@
-
-
 import React, { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts';
 import { SYSTEM_RESOURCES, LogoutIcon } from '../constants';
 import { Admin, Lead, LeadStatus } from '../types';
 
 const Card: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className }) => (
-    <div className={`bg-white p-6 rounded-xl shadow-md ${className}`}>
+    <div className={`bg-white p-4 rounded-xl shadow-md ${className}`}>
         {children}
     </div>
 );
 
 const SectionTitle: React.FC<{ title: string }> = ({ title }) => (
-     <h3 className="text-lg font-semibold text-slate-700 mb-4">{title}</h3>
+     <h3 className="text-lg font-semibold text-slate-700 mb-2">{title}</h3>
 );
 
 const ResourceBar: React.FC<{ label: string; value: number; color: string }> = ({ label, value, color }) => (
@@ -32,6 +30,7 @@ interface DashboardProps {
     onLogout: () => void;
     leads: Lead[];
     leadStatuses: LeadStatus[];
+    accountCreationDate?: string;
 }
 
 const ApiUsageGauge: React.FC<{ usage: number }> = ({ usage }) => {
@@ -40,7 +39,7 @@ const ApiUsageGauge: React.FC<{ usage: number }> = ({ usage }) => {
 
     return (
         <div className="relative w-full h-full flex items-center justify-center">
-            <ResponsiveContainer width="100%" height={120}>
+            <ResponsiveContainer width="100%" height={100}>
                 <PieChart>
                     <Pie
                         data={[{ value: 100 }]}
@@ -70,13 +69,12 @@ const ApiUsageGauge: React.FC<{ usage: number }> = ({ usage }) => {
             </ResponsiveContainer>
             <div className="absolute flex flex-col items-center justify-center" style={{ top: '60%' }}>
                  <span className="text-3xl font-bold" style={{ color }}>{usage}%</span>
-                 <p className="text-slate-500 text-sm mt-1">of quota</p>
             </div>
         </div>
     )
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ adminUser, onLogout, leads, leadStatuses }) => {
+const Dashboard: React.FC<DashboardProps> = ({ adminUser, onLogout, leads, leadStatuses, accountCreationDate }) => {
     const PIE_COLORS = ['#0ea5e9', '#6366f1', '#f43f5e', '#f97316', '#10b981', '#8b5cf6'];
 
     const leadsByStatusData = useMemo(() => {
@@ -88,6 +86,33 @@ const Dashboard: React.FC<DashboardProps> = ({ adminUser, onLogout, leads, leadS
             }))
             .filter(data => data.value > 0);
     }, [leads, leadStatuses]);
+
+    const leadsByStagePercentageData = useMemo(() => {
+        const totalLeads = leads.length;
+        if (totalLeads === 0 || !leadStatuses) return [];
+
+        return leadStatuses.map(status => {
+            const count = leads.filter(lead => lead.status === status.name).length;
+            const percentage = Math.round((count / totalLeads) * 100);
+            return {
+                name: status.name,
+                percentage: percentage,
+                count: count,
+                color: status.color,
+            };
+        });
+    }, [leads, leadStatuses]);
+
+    const PROGRESS_COLOR_MAP: { [key in LeadStatus['color']]: string } = {
+        sky: 'text-sky-500',
+        blue: 'text-blue-500',
+        green: 'text-green-500',
+        red: 'text-red-500',
+        amber: 'text-amber-500',
+        indigo: 'text-indigo-500',
+        slate: 'text-slate-500',
+    };
+
 
     const last7DaysLeadsData = useMemo(() => {
         if (!leads) return [];
@@ -133,19 +158,29 @@ const Dashboard: React.FC<DashboardProps> = ({ adminUser, onLogout, leads, leadS
         });
     }, [leads]);
 
+    const formattedCreationDate = useMemo(() => {
+        if (!accountCreationDate) return 'N/A';
+        return new Date(accountCreationDate).toLocaleDateString('en-GB', {
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric'
+        });
+    }, [accountCreationDate]);
+
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             
-            <div className="lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                  <Card>
-                    <SectionTitle title="Admin Details" />
+                    <SectionTitle title="User Details" />
                     <div className="flex items-start gap-4">
-                        <img src={adminUser.avatarUrl} alt="Admin" className="w-16 h-16 rounded-full object-cover flex-shrink-0" />
+                        <img src={adminUser.avatarUrl} alt="User" className="w-16 h-16 rounded-full object-cover flex-shrink-0" />
                         <div className="flex flex-col">
                            <div>
                                 <p className="font-semibold text-slate-800">{adminUser.name}</p>
                                 <p className="text-sm text-slate-500">{adminUser.email}</p>
+                                <p className="text-xs text-slate-400 mt-1">System Created: {formattedCreationDate}</p>
                            </div>
                              <button
                                 onClick={onLogout}
@@ -158,17 +193,41 @@ const Dashboard: React.FC<DashboardProps> = ({ adminUser, onLogout, leads, leadS
                     </div>
                 </Card>
                  <Card className="md:col-span-2">
-                    <SectionTitle title="System Resources Status" />
-                    <div className="space-y-4">
-                        <ResourceBar label="CPU Usage" value={SYSTEM_RESOURCES.cpu} color="text-sky-500" />
-                        <ResourceBar label="Memory Load" value={SYSTEM_RESOURCES.memory} color="text-indigo-500" />
-                        <ResourceBar label="Storage" value={SYSTEM_RESOURCES.storage} color="text-amber-500" />
+                    <SectionTitle title="Leads by Stage" />
+                    <div className="space-y-3">
+                        {leadsByStagePercentageData.length > 0 ? (
+                            leadsByStagePercentageData.map(data => (
+                                <ResourceBar 
+                                    key={data.name}
+                                    label={`${data.name} (${data.count})`} 
+                                    value={data.percentage} 
+                                    color={PROGRESS_COLOR_MAP[data.color] || 'text-slate-500'} 
+                                />
+                            ))
+                        ) : (
+                            <p className="text-sm text-slate-500 text-center py-8">No lead data to display.</p>
+                        )}
                     </div>
                 </Card>
-                <Card>
-                     <SectionTitle title="API Usage" />
-                     <div className="h-full flex items-center justify-center">
-                        <ApiUsageGauge usage={SYSTEM_RESOURCES.apiUsage} />
+                <Card className="flex flex-col justify-between">
+                     <div>
+                        <SectionTitle title="API Usage" />
+                        <div className="flex items-center justify-center">
+                            <ApiUsageGauge usage={SYSTEM_RESOURCES.apiUsage} />
+                        </div>
+                     </div>
+                     <div className="mt-1">
+                        <div className="text-center mb-2">
+                            <p className="text-2xl font-bold text-slate-800">
+                                {(SYSTEM_RESOURCES.apiUsage / 100 * 10000).toLocaleString()}
+                                <span className="text-base font-medium text-slate-500">/ 10,000</span>
+                            </p>
+                            <p className="text-sm text-slate-500">API calls used</p>
+                            <p className="text-xs text-slate-400 mt-1">Your plan renews on July 1, 2024</p>
+                        </div>
+                        <button className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 px-4 rounded-lg transition duration-300 text-sm">
+                            Upgrade Plan
+                        </button>
                      </div>
                 </Card>
             </div>
@@ -176,7 +235,7 @@ const Dashboard: React.FC<DashboardProps> = ({ adminUser, onLogout, leads, leadS
             <div className="lg:col-span-2">
                 <Card>
                     <SectionTitle title="New Leads (Last 7 Days)" />
-                    <ResponsiveContainer width="100%" height={300}>
+                    <ResponsiveContainer width="100%" height={250}>
                         <LineChart data={last7DaysLeadsData}>
                             <XAxis dataKey="name" stroke="#94a3b8" />
                             <YAxis stroke="#94a3b8" allowDecimals={false} />
@@ -190,9 +249,9 @@ const Dashboard: React.FC<DashboardProps> = ({ adminUser, onLogout, leads, leadS
 
             <Card>
                 <SectionTitle title="Leads by Status" />
-                <ResponsiveContainer width="100%" height={300}>
+                <ResponsiveContainer width="100%" height={250}>
                     <PieChart>
-                        <Pie data={leadsByStatusData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} fill="#8884d8" label>
+                        <Pie data={leadsByStatusData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} fill="#8884d8" label>
                              {leadsByStatusData.map((entry, index) => (
                                 <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
                             ))}

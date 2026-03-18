@@ -10,7 +10,8 @@ interface SidebarProps {
     onLogout: () => void;
 }
 
-const NavItem: React.FC<{ icon: JSX.Element; label: Page; isActive: boolean; onClick: () => void }> = ({ icon, label, isActive, onClick }) => (
+// Fix: Changed icon prop type from JSX.Element to React.ReactNode to resolve "Cannot find namespace 'JSX'" error.
+const NavItem: React.FC<{ icon: React.ReactNode; label: Page; isActive: boolean; onClick: () => void }> = ({ icon, label, isActive, onClick }) => (
     <li
         onClick={onClick}
         className={`flex items-center p-3 my-1 rounded-lg cursor-pointer transition-colors duration-200 ${
